@@ -3,8 +3,7 @@ import org.msgpack.core.MessagePack;
 import org.msgpack.core.MessageUnpacker;
 
 import java.io.IOException;
-import java.lang.reflect.Field;
-import java.lang.reflect.InvocationTargetException;
+import java.lang.reflect.*;
 import java.util.*;
 
 public class MessagePackSerializer {
@@ -38,7 +37,6 @@ public class MessagePackSerializer {
             clazz = clazz.getSuperclass(); // 处理父类字段
         }
 
-        // 这里假设类的所有字段都要被序列化成数组的形式，因此我们先序列化一个数组头（字段数量）
         packer.packArrayHeader(allFields.size());
 
         for (Field field : allFields) {
@@ -49,27 +47,27 @@ public class MessagePackSerializer {
     }
 
     private static Object deserializeObject(Class<?> clazz, MessageUnpacker unpacker) throws IOException,
-            IllegalAccessException, InvocationTargetException, InstantiationException, NoSuchMethodException, ClassNotFoundException {
+            IllegalAccessException, InvocationTargetException, InstantiationException, NoSuchMethodException,
+            ClassNotFoundException {
         if (unpacker.tryUnpackNil()) {
             return null;
         }
 
         Object obj = clazz.getDeclaredConstructor().newInstance();
 
-        // 读取数组头部（字段数量）
         int fieldCount = unpacker.unpackArrayHeader();
 
         List<Field> allFields = new ArrayList<>();
         while (clazz != null) {
             Field[] fields = clazz.getDeclaredFields();
             allFields.addAll(Arrays.asList(fields));
-            clazz = clazz.getSuperclass(); // 处理父类字段
+            clazz = clazz.getSuperclass();
         }
 
         for (int i = 0; i < fieldCount; i++) {
             Field field = allFields.get(i);
             field.setAccessible(true);
-            Object value = deserializeValue(field.getType(), unpacker, getFieldType(field));
+            Object value = deserializeValue(field.getType(), unpacker, getFieldGenericType(field));
             field.set(obj, value);
         }
 
@@ -110,9 +108,9 @@ public class MessagePackSerializer {
         }
     }
 
-    private static Object deserializeValue(Class<?> type, MessageUnpacker unpacker, Class<?> itemType)
-            throws IOException,
-            IllegalAccessException, InstantiationException, InvocationTargetException, NoSuchMethodException, ClassNotFoundException {
+    private static Object deserializeValue(Class<?> type, MessageUnpacker unpacker, Type genericType)
+            throws IOException, IllegalAccessException, InstantiationException, InvocationTargetException,
+            NoSuchMethodException, ClassNotFoundException {
         if (unpacker.tryUnpackNil()) {
             return null;
         } else if (type == String.class) {
@@ -129,17 +127,26 @@ public class MessagePackSerializer {
             return unpacker.unpackBoolean();
         } else if (List.class.isAssignableFrom(type)) {
             int size = unpacker.unpackArrayHeader();
-            List<Object> list = new ArrayList<>(size);
+            List<Object> list = new ArrayList<Object>(size);
             for (int i = 0; i < size; i++) {
-                list.add(deserializeValue(itemType, unpacker, itemType));
+                Type listItemType = (genericType instanceof ParameterizedType)
+                        ? ((ParameterizedType) genericType).getActualTypeArguments()[0]
+                        : Object.class;
+                list.add(deserializeValue((Class<?>) listItemType, unpacker, listItemType));
             }
             return list;
         } else if (Map.class.isAssignableFrom(type)) {
             int size = unpacker.unpackMapHeader();
-            Map<Object, Object> map = new HashMap<>(size);
+            Map<Object, Object> map = new HashMap<Object, Object>(size);
+            Type keyType = (genericType instanceof ParameterizedType)
+                    ? ((ParameterizedType) genericType).getActualTypeArguments()[0]
+                    : String.class;
+            Type valueType = (genericType instanceof ParameterizedType)
+                    ? ((ParameterizedType) genericType).getActualTypeArguments()[1]
+                    : Object.class;
             for (int i = 0; i < size; i++) {
-                Object key = deserializeValue(String.class, unpacker, String.class); // 假设Key为String类型
-                Object value = deserializeValue(itemType, unpacker, itemType);
+                Object key = deserializeValue((Class<?>) keyType, unpacker, keyType);
+                Object value = deserializeValue((Class<?>) valueType, unpacker, valueType);
                 map.put(key, value);
             }
             return map;
@@ -148,11 +155,7 @@ public class MessagePackSerializer {
         }
     }
 
-    private static Class<?> getFieldType(Field field) {
-        if (List.class.isAssignableFrom(field.getType())) {
-            return (Class<?>) ((java.lang.reflect.ParameterizedType) field.getGenericType())
-                    .getActualTypeArguments()[0];
-        }
-        return field.getType();
+    private static Type getFieldGenericType(Field field) {
+        return field.getGenericType();
     }
 }
