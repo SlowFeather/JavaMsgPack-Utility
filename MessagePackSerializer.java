@@ -132,6 +132,63 @@ public class MessagePackSerializer {
                 Type listItemType = (genericType instanceof ParameterizedType)
                         ? ((ParameterizedType) genericType).getActualTypeArguments()[0]
                         : Object.class;
+
+                Class<?> listItemClass;
+                if (listItemType instanceof Class<?>) {
+                    listItemClass = (Class<?>) listItemType;
+                } else if (listItemType instanceof ParameterizedType) {
+                    listItemClass = (Class<?>) ((ParameterizedType) listItemType).getRawType();
+                } else {
+                    listItemClass = Object.class;
+                }
+
+                list.add(deserializeValue(listItemClass, unpacker, listItemType));
+            }
+            return list;
+        } else if (Map.class.isAssignableFrom(type)) {
+            int size = unpacker.unpackMapHeader();
+            Map<Object, Object> map = new HashMap<Object, Object>(size);
+            Type keyType = (genericType instanceof ParameterizedType)
+                    ? ((ParameterizedType) genericType).getActualTypeArguments()[0]
+                    : String.class;
+            Type valueType = (genericType instanceof ParameterizedType)
+                    ? ((ParameterizedType) genericType).getActualTypeArguments()[1]
+                    : Object.class;
+            for (int i = 0; i < size; i++) {
+                Object key = deserializeValue((Class<?>) keyType, unpacker, keyType);
+                Object value = deserializeValue((Class<?>) valueType, unpacker, valueType);
+                map.put(key, value);
+            }
+            return map;
+        } else {
+            return deserializeObject(type, unpacker);
+        }
+    }
+
+    private static Object deserializeValueOld(Class<?> type, MessageUnpacker unpacker, Type genericType)
+            throws IOException, IllegalAccessException, InstantiationException, InvocationTargetException,
+            NoSuchMethodException, ClassNotFoundException {
+        if (unpacker.tryUnpackNil()) {
+            return null;
+        } else if (type == String.class) {
+            return unpacker.unpackString();
+        } else if (type == Integer.class || type == int.class) {
+            return unpacker.unpackInt();
+        } else if (type == Long.class || type == long.class) {
+            return unpacker.unpackLong();
+        } else if (type == Float.class || type == float.class) {
+            return unpacker.unpackFloat();
+        } else if (type == Double.class || type == double.class) {
+            return unpacker.unpackDouble();
+        } else if (type == Boolean.class || type == boolean.class) {
+            return unpacker.unpackBoolean();
+        } else if (List.class.isAssignableFrom(type)) {
+            int size = unpacker.unpackArrayHeader();
+            List<Object> list = new ArrayList<Object>(size);
+            for (int i = 0; i < size; i++) {
+                Type listItemType = (genericType instanceof ParameterizedType)
+                        ? ((ParameterizedType) genericType).getActualTypeArguments()[0]
+                        : Object.class;
                 list.add(deserializeValue((Class<?>) listItemType, unpacker, listItemType));
             }
             return list;
