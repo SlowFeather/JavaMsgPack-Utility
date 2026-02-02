@@ -5,6 +5,7 @@ import org.msgpack.core.MessageUnpacker;
 import java.io.IOException;
 import java.lang.reflect.*;
 import java.util.*;
+import java.lang.reflect.Array;
 
 public class MessagePackSerializer {
 
@@ -90,7 +91,16 @@ public class MessagePackSerializer {
             packer.packDouble((Double) value);
         } else if (value instanceof Boolean) {
             packer.packBoolean((Boolean) value);
-        } else if (value instanceof List) {
+        } 
+        else if (value.getClass().isArray()) {
+            // 处理数组序列化
+            int length = Array.getLength(value);
+            packer.packArrayHeader(length);
+            for (int i = 0; i < length; i++) {
+                serializeValue(Array.get(value, i), packer);
+            }
+        }
+        else if (value instanceof List) {
             List<?> list = (List<?>) value;
             packer.packArrayHeader(list.size());
             for (Object item : list) {
@@ -125,7 +135,20 @@ public class MessagePackSerializer {
             return unpacker.unpackDouble();
         } else if (type == Boolean.class || type == boolean.class) {
             return unpacker.unpackBoolean();
-        } else if (List.class.isAssignableFrom(type)) {
+        }
+        else if (type.isArray()) { 
+            // 处理数组类型 (例如 int[], String[], User[])
+            int length = unpacker.unpackArrayHeader();
+            Class<?> componentType = type.getComponentType(); // 获取数组元素类型
+            Object array = Array.newInstance(componentType, length); // 创建数组实例
+            for (int i = 0; i < length; i++) {
+                // 递归反序列化数组元素
+                Object val = deserializeValue(componentType, unpacker, componentType);
+                Array.set(array, i, val);
+            }
+            return array;
+        }
+        else if (List.class.isAssignableFrom(type)) {
             int size = unpacker.unpackArrayHeader();
             List<Object> list = new ArrayList<Object>(size);
             for (int i = 0; i < size; i++) {
